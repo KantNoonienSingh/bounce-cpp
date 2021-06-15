@@ -12,7 +12,7 @@ namespace {
 
     static const float ballRadius = 0.2; // > Ball radius (between 0.1 and 1)
     static const float ballXSpeed = 0.1; // > Ball speed (between 0 and 0.25)
-    static const float ballYSpeed = 0.25; // > Ball speed (between 0 and 0.25)
+    static const float ballYSpeed = 0.05; // > Ball speed (between 0 and 0.25)
 }
 
 namespace {
