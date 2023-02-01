@@ -1,64 +1,61 @@
-#ifndef _ball_hpp
-#define _ball_hpp
+#pragma once
+
+#ifndef BALL_HPP
+#define BALL_HPP
 
 #include <functional>
 
-namespace widget {
-    //! @class Ball
-    /*! a Ball that bounces between walls
-     */
-    class Ball {
-    public:
-        //! @class Geometry
-        /*! ball physical shape */
-        struct Geometry {
-            float radius, vertexStepSize;
-        };
+//! @struct Geometry
+/*! ball physical shape */
+struct Geometry {
+    float radius, vertexStepSize;
+};
 
-        //! @class Position
-        /*! ball physical location */
-        struct Position {
-            float angle;
-            float coord;
-            float wall1;
-            float wall2;
-            float speed;
-        };
+//! @struct Position
+/*! ball physical location */
+struct Position {
+    float angle;
+    float coord;
+    float speed;
+    float wall1, wall2;
+};
 
-        //! @class Vertex
-        /*! opengl triangle vertex */
-        struct Vertex {
+//! @struct Vertex
+/*! opengl triangle vertex */
+struct Vertex {
 
-            float x, y, z;
-            inline Vertex() : x(0), y(0), z(0) {}
-        };
+    float x, y, z;
+    inline Vertex() : x(0), y(0), z(0) {}
+};
 
-        //! ctor.
-        // @param    geometry ball shape
-        Ball(const Geometry& geometry);
+//! @class Ball
+/*! A Ball that bounces between walls
+ */
+class Ball {
 
-        //! Draws ball to screen
-        //!
-        //! @param px    ball x-coordinate
-        //! @param px    ball y-coordinate
-        void draw(Position& px, Position& py);
+    // Ball shape
+    Geometry g_;
 
-        //! Draws ball to screen, but takes an additional callback argument
-        //!
-        //! @param px          ball x-coordinate
-        //! @param px          ball y-coordinate
-        //! @param onBounce    callback, called on hitting a wall
-        void draw(Position& px,
-                  Position& py,
-                  std::function<void(Ball::Geometry&, Ball::Position&, Ball::Position&)> onBounce);
+public:
 
-    private:
+    typedef std::function<void(const Geometry&, Position&, Position&)> cb__;
 
-        // Ball shape
-        Geometry g_;
-        // Default bounce callback handler
-        void on_bounce(Ball::Geometry& g, Ball::Position& px, Ball::Position& py);
-    };
-}
+    //! ctor.
+    // @param    geometry ball shape
+    explicit Ball(const Geometry& geometry);
+
+    //! Draws ball to screen
+    //!
+    //! @param px    ball x-coordinate
+    //! @param px    ball y-coordinate
+    void draw(Position& px, Position& py);
+
+    //! Draws ball to screen, but takes an additional callback argument
+    //!
+    //! @param px          ball x-coordinate
+    //! @param px          ball y-coordinate
+    //! @param onBounce    callback, called on hitting a wall
+    void draw(Position& px, Position& py, const cb__& onBounceCB);
+};
 
 #endif

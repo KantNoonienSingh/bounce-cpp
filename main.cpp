@@ -1,233 +1,202 @@
+#include <memory>
+#include <vector>
+
+#include <GLES3/gl3.h>
 #include <GL/glu.h>
+
+#include "ball.hpp"
+#include "grid.hpp"
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_opengl.h>
-
-#include "ball.hpp"
-
-namespace {
-    // Modify these parameters to adjust screen size
-    static const int screenWidth = 800;
-    static const int screenHeight = 800;
-
-    static const float ballRadius = 0.2; // > Ball radius (between 0.1 and 1)
-    static const float ballXSpeed = 0.1; // > Ball speed (between 0 and 0.25)
-    static const float ballYSpeed = 0.05; // > Ball speed (between 0 and 0.25)
-}
 
 namespace {
 
     struct SDLParam {
         SDL_Window* window;
         SDL_GLContext context;
-        int screenWidth;
-        int screenHeight;
     };
 
-    bool init_sdl(SDLParam& params)
+    bool init_sdl(SDLParam& params, unsigned widthHint, unsigned heightHint)
     {
         // Initialize sdl
-        if (SDL_Init(SDL_INIT_VIDEO) != 0)
-        {
-            printf("SDL could not initialize! SDL Error: %s\n", SDL_GetError());
-            return false;
+        if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) {
+            return (printf("SDL could not initialize! SDL Error: %s\n", SDL_GetError()), false);
         }
 
-        // Use OpenGL 2.1
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+        // GL 3.0 + GLSL 130
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
 
-        // Create window
-        params.window = SDL_CreateWindow("Infinite Space",
-                                         SDL_WINDOWPOS_UNDEFINED,
-                                         SDL_WINDOWPOS_UNDEFINED,
-                                         params.screenWidth,
-                                         params.screenHeight,
-                                         SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN );
-        if (params.window == nullptr)
-        {
-            printf("Window could not be created! SDL Error: %s\n", SDL_GetError());
-            return false;
+        // Create window with graphics context
+        SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+        SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+        SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+        SDL_WindowFlags flags = (SDL_WindowFlags)(SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
+        params.window = SDL_CreateWindow("Bounce",
+                                         SDL_WINDOWPOS_CENTERED,
+                                         SDL_WINDOWPOS_CENTERED,
+                                         widthHint,
+                                         heightHint,
+                                         flags);
+        if (params.window == nullptr) {
+            return (printf("Window could not be created! SDL Error: %s\n", SDL_GetError()), false);
         }
 
         // Create context
         params.context = SDL_GL_CreateContext(params.window);
-
-        if (params.context == nullptr)
-        {
-            printf("OpenGL context could not be created! SDL Error: %s\n", SDL_GetError());
-            return false;
+        if (params.context == nullptr) {
+            return (printf("OpenGL context could not be created! SDL Error: %s\n", SDL_GetError()), false);
         }
 
+        SDL_GL_MakeCurrent(params.window, params.context);
+
         // Use Vsync
-        if(SDL_GL_SetSwapInterval(1) != 0)
-        {
-            printf("Warning: Unable to set VSync! SDL Error: %s\n", SDL_GetError());
-            return false;
+        if(SDL_GL_SetSwapInterval(1) != 0) {
+            return (printf("Warning: Unable to set VSync! SDL Error: %s\n", SDL_GetError()), false);
         }
 
         return true;
     }
-
-    GLenum init_gl()
-    {
-        // Initialize Projection Matrix
-        glMatrixMode(GL_PROJECTION);
-        glLoadIdentity();
-
-        // Initialize Modelview Matrix
-        glMatrixMode(GL_MODELVIEW);
-        glLoadIdentity();
-
-        // Initialize clear color
-        glClearColor(0.2, 0.2, 0.2, 1.f);
-
-        // Check for error
-        return glGetError();
-    }
-
-    void on_key_press(const unsigned char key)
-    {
-        int x, y;
-        SDL_GetMouseState(&x, &y);
-
-        (void)x;
-        (void)y;
-
-        // Toggle quad
-        switch (key)
-        {
-            default:
-                break;
-        }
-    }
 }
 
 namespace {
-    /*! Draws a background grid 
+    /*! Draws ball
      */
-    void draw_grid(int width, int height)
-    {
-        glColor3f(0.6f, 0.6f, 0.0f);
-
-        glPushMatrix();
-        glBegin(GL_LINES);
-
-        for (float i = -width ; i <= width; i += 0.5)
-        {
-            // Horizontal lines
-            glVertex3f(+width, i, 0.0f);
-            glVertex3f(-width, i, 0.0f);
-
-            // Vertical  lines
-            glVertex3f(i, +height, 0.0f);
-            glVertex3f(i, -height, 0.0f);
-        }
-
-        glEnd();
-        glPopMatrix();
+    inline void draw_ball(Ball& ball, Position& px, Position& py) {
+        ball.draw(px, py);
     }
 }
 
+//! struct BallData
+/*! Defines a moving ball, to be rendered using OpenGL1 primitives
+ */
+struct BallData {
+
+    BallData(float ballRadius, float ballVertexStepSize) : ball(Geometry({ ballRadius, ballVertexStepSize })) {}
+    // Rendered object
+    Ball ball;
+    // Current ball position
+    Position ballPx, ballPy;
+};
+
 namespace {
 
-    void loop(struct SDLParam& params,
-              widget::Ball& ball,
-              widget::Ball::Position& px,
-              widget::Ball::Position& py)
-    {
-        //While application is running
-        while (true)
-        {
-            //Handle events on queue
-            SDL_Event e;
-            while (SDL_PollEvent(&e) != 0)
+    class Runner {
+
+        unsigned screenWidth_;
+        unsigned screenHeight_;
+        std::shared_ptr<BallData> ballData_;
+
+    public:
+
+        void on_window_event(SDL_Event e) {
+
+            if ((e.window).event == SDL_WINDOWEVENT_SIZE_CHANGED)
             {
-                switch (e.type)
+                screenWidth_ = e.window.data1;
+                screenHeight_ = e.window.data2;
+                glViewport(0, 0, screenWidth_, screenHeight_);
+            }
+        }
+
+        void set_data(std::shared_ptr<BallData> data) {
+            ballData_ = data;
+        }
+
+        void run(const SDLParam& params) {
+
+            while (true)
+            {
+                //Handle events on queue
+                SDL_Event e;
+                while (SDL_PollEvent(&e) != 0)
                 {
-                    // User quits
-                    case SDL_QUIT: {
-                        return;
-                    }
+                    switch (e.type)
+                    {
+                        // User quits
+                        case SDL_QUIT: {
+                            return;
+                        }
+
+                        case SDL_WINDOWEVENT:
+                        {
+                            on_window_event(e);
+                            break;
+                        }
 
                         // Handle keypress with current mouse position
-                    case SDL_TEXTINPUT:
-                    {
-                        on_key_press(e.text.text[0]);
-                        break;
+                        case SDL_TEXTINPUT:
+                        {
+                            switch (e.text.text[0])
+                            {
+                                case SDLK_q: {
+                                    return;
+                                }
+                            }
+
+                            break;
+                        }
                     }
                 }
-            }
 
+                render(params);
+            }
+        }
+
+        void render(const SDLParam& params) {
+
+            glClearColor(0.5, 0, 0, 1.0);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+            BallData& refballData = *ballData_;
             // Render...
-            // Clear color buffer
-            glClear(GL_COLOR_BUFFER_BIT);
-            // Redraw the grad
-            draw_grid(params.screenWidth, params.screenHeight);
-            // Redraw the ball
-            ball.draw(px, py);
-            // Update screen
+            draw_grid(screenWidth_, screenHeight_);
+            draw_ball(refballData.ball, refballData.ballPx, refballData.ballPy);
+
+            // Update screen & return
             SDL_GL_SwapWindow(params.window);
         }
-    }
-}
-
-
-namespace {
-
-    // Loads ball coordinates at start
-    void load_position(widget::Ball::Position p[2])
-    {
-        // X-position
-        p[0].angle = 0.02;
-        p[0].coord = 0.02;
-        p[0].wall2 = 1.0;
-        p[0].wall1 = -1.0;
-        p[0].speed = std::min<float>(std::max<float>(ballXSpeed, 0), 0.2);
-        // Y-position
-        p[1].angle = 0.02;
-        p[1].coord = 0.02;
-        p[1].wall2 = 1.0;
-        p[1].wall1 = -1.0;
-        p[1].speed = std::min<float>(std::max<float>(ballYSpeed, 0), 0.2);
-    }
+    };
 }
 
 /*! Entry point
  */
 int main(void)
 {
-    SDLParam params;
-    params.screenWidth = screenWidth;
-    params.screenHeight = screenHeight;
-
-    widget::Ball::Geometry g;
-    g.radius = ballRadius;
-    g.vertexStepSize = 20;
+    const unsigned screenWidth = 100;
+    const unsigned screenHeight = 100;
 
     //Initialize SDL
-    if (!init_sdl(params))
+    SDLParam params;
+    if (!init_sdl(params, screenWidth, screenHeight))
     {
-        printf("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
-        SDL_Quit();
+        printf("Error initializing SDL\n");
         return 1;
     }
 
-    // Initialize OpenGL
-    GLenum error;
-    if ((error = init_gl()) != GL_NO_ERROR)
-    {
-        printf("Error initializing OpenGL! %s\n", gluErrorString(error));
-        SDL_Quit();
-        return 1;
-    }
+    static const float ballRadius = 0.08;
+    static const float ballVertexStepSize = 20;
+    static const float ballXSpeed = 0.1; // > Ball speed (between 0 and 0.25)
+    static const float ballYSpeed = 0.05; // > Ball speed (between 0 and 0.25)
 
-    // Create ball
-    widget::Ball ball(g);
+    // Designate ball starting positions
+    // X-position
+    std::shared_ptr<BallData> data(new BallData(ballRadius, ballVertexStepSize));
 
-    // Designate ball starting position
-    widget::Ball::Position p[2];
-    load_position(p);
+    data->ballPx.angle = 0.02;
+    data->ballPx.coord = 0.02;
+    data->ballPx.wall2 = 1.0;
+    data->ballPx.wall1 = -1.0;
+    data->ballPx.speed = std::min<float>(std::max<float>(ballXSpeed, 0), 0.2);
+    // Y-position
+    data->ballPy.angle = 0.02;
+    data->ballPy.coord = 0.02;
+    data->ballPy.wall2 = 1.0;
+    data->ballPy.wall1 = -1.0;
+    data->ballPy.speed = std::min<float>(std::max<float>(ballYSpeed, 0), 0.2);
 
     //Enable text input
     SDL_StartTextInput();
@@ -237,8 +206,9 @@ int main(void)
     glDisable(GL_DITHER);
     glShadeModel(GL_FLAT);
 
-    // Enter main program loop...
-    loop(params, ball, p[0], p[1]);
+    Runner runner;
+    runner.set_data(data);
+    runner.run(params);
 
     SDL_StopTextInput();
     SDL_Quit();
